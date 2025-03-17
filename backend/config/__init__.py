@@ -125,6 +125,11 @@ LOGLEVEL: Final = os.environ.get("LOGLEVEL", "INFO").upper()
 FORCE_COLOR: Final = str_to_bool(os.environ.get("FORCE_COLOR", "false"))
 NO_COLOR: Final = str_to_bool(os.environ.get("NO_COLOR", "false"))
 
+# ASSETS
+STORE_COVERS: Final = str_to_bool(os.environ.get("STORE_COVERS", "false"))
+STORE_SCREENSHOTS: Final = str_to_bool(os.environ.get("STORE_SCREENSHOTS", "false"))
+STORE_MANUALS: Final = str_to_bool(os.environ.get("STORE_MANUALS", "false"))
+
 # SENTRY
 SENTRY_DSN: Final = os.environ.get("SENTRY_DSN", None)
 
