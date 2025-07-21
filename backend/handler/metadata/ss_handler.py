@@ -8,6 +8,7 @@ import pydash
 from adapters.services.screenscraper import ScreenScraperService
 from adapters.services.screenscraper_types import SSGame, SSGameDate
 from config import SCREENSCRAPER_PASSWORD, SCREENSCRAPER_USER
+from Levenshtein import distance as levenshtein_distance
 from unidecode import unidecode as uc
 
 from .base_hander import (
@@ -274,6 +275,7 @@ def extract_metadata_from_ss_rom(rom: SSGame) -> SSMetadata:
 class SSHandler(MetadataHandler):
     def __init__(self) -> None:
         self.ss_service = ScreenScraperService()
+        self.max_levenshtein_distance: Final = 4
 
     async def _search_rom(self, search_term: str, platform_ss_id: int) -> SSGame | None:
         if not platform_ss_id:
@@ -285,7 +287,8 @@ class SSHandler(MetadataHandler):
             return any(
                 (
                     rom_name.lower() == search_term.lower()
-                    or self.normalize_search_term(rom_name) == search_term
+                    or self.normalize_search_term(rom_name, remove_punctuation=False)
+                    == search_term
                 )
                 for rom_name in rom_names
             )
@@ -299,6 +302,27 @@ class SSHandler(MetadataHandler):
             if is_exact_match(rom, search_term):
                 return rom
 
+        # Calculate Levenshtein distances for all names and find the best match
+        game_distances = []
+        for rom in roms:
+            rom_names = [name.get("text", "").lower() for name in rom.get("noms", [])]
+            for rom_name in rom_names:
+                distance = levenshtein_distance(
+                    self.normalize_search_term(rom_name, remove_punctuation=False),
+                    search_term,
+                )
+                game_distances.append((rom, distance))
+
+        # Sort by distance (ascending) to get the best match first
+        game_distances.sort(key=lambda x: x[1])
+        print("Game distances:", [(x[0]["noms"], x[1]) for x in game_distances])
+
+        # Try the best matches within the threshold
+        for game, distance in game_distances:
+            if distance <= self.max_levenshtein_distance:
+                return game
+
+        # If no exact match found, return the first rom
         return roms[0] if roms else None
 
     def get_platform(self, slug: str) -> SSPlatform:
@@ -386,6 +410,7 @@ class SSHandler(MetadataHandler):
         normalized_search_term = self.normalize_search_term(
             search_term, remove_punctuation=False
         )
+        print("Normalized search term:", normalized_search_term)
         res = await self._search_rom(normalized_search_term, platform_ss_id)
 
         # SS API doesn't handle some special characters well
