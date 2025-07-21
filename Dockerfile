@@ -6,7 +6,12 @@ FROM ubuntu:22.04
 # Prevent interactive prompts during installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies
+# Create non-root user first
+RUN groupadd -r romm && useradd -r -g romm -d /home/romm -s /bin/bash romm \
+    && mkdir -p /home/romm \
+    && chown -R romm:romm /home/romm
+
+# Install system dependencies (as root - this is necessary)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     make \
@@ -30,11 +35,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     liblzma-dev \
     libncurses5-dev \
     libncursesw5-dev \
+    sudo \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install nvm
-ENV NVM_DIR="/root/.nvm"
+# Install nvm for the non-root user
+ENV NVM_DIR="/home/romm/.nvm"
+RUN mkdir -p $NVM_DIR \
+    && chown -R romm:romm $NVM_DIR
+USER romm
 RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash \
     && . "$NVM_DIR/nvm.sh" \
     && nvm install 18.20.8 \
@@ -42,7 +51,10 @@ RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | b
     && nvm alias default 18.20.8
 ENV PATH="$NVM_DIR/versions/node/v18.20.8/bin:$PATH"
 
-# Build and install RAHasher (optional for RA hashes)
+# Switch back to root for system operations
+USER root
+
+# Build and install RAHasher (needs to be in system location)
 RUN git clone --recursive --branch 1.8.1 --depth 1 https://github.com/RetroAchievements/RALibretro.git /tmp/RALibretro
 WORKDIR /tmp/RALibretro
 RUN sed -i '22a #include <ctime>' ./src/Util.h \
@@ -51,31 +63,41 @@ RUN sed -i '22a #include <ctime>' ./src/Util.h \
       ./src/libchdr/deps/zlib-1.3.1/gzread.c \
       ./src/libchdr/deps/zlib-1.3.1/gzwrite.c \
     && make HAVE_CHD=1 -f ./Makefile.RAHasher \
-    && cp ./bin64/RAHasher /usr/bin/RAHasher
+    && cp ./bin64/RAHasher /usr/bin/RAHasher \
+    && chmod +x /usr/bin/RAHasher
 RUN rm -rf /tmp/RALibretro
 
-# Install frontend dependencies
-COPY frontend/package.json /app/frontend/
-WORKDIR /app/frontend
-RUN npm install
-
-# Set working directory
-WORKDIR /app
+# Create app directory with proper ownership
+RUN mkdir -p /app && chown -R romm:romm /app
 
 # Install uv for the non-root user
 COPY --from=ghcr.io/astral-sh/uv:0.7.19 /uv /uvx /usr/local/bin/
 
+# Switch to non-root user for application operations
+USER romm
+WORKDIR /app
+
 # Install Python
 RUN uv python install 3.13
 
-# Copy project files (including pyproject.toml and uv.lock)
-COPY pyproject.toml uv.lock* .python-version /app/
-
-# Install Python dependencies
+# Copy and install Python dependencies
+COPY --chown=romm:romm pyproject.toml uv.lock* .python-version /app/
 RUN uv sync --all-extras
 
-# Copy entrypoint script
+# Install frontend dependencies
+COPY --chown=romm:romm frontend/package.json /app/frontend/
+WORKDIR /app/frontend
+RUN npm install
+
+# Back to app directory
+WORKDIR /app
+
+# Copy entrypoint script and set permissions
+USER root
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN chmod +x /entrypoint.sh && chown romm:romm /entrypoint.sh
+
+# Final switch to non-root user
+USER romm
 
 ENTRYPOINT ["/entrypoint.sh"]

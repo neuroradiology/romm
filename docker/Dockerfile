@@ -175,9 +175,18 @@ COPY ./docker/gunicorn/logging.conf /etc/gunicorn/logging.conf
 # - Create base directories and make default user/group the owner.
 # - Make nginx configuration files writable by everyone, for `envsubst` to work
 #     when a custom UID/GID is used.
+# - Set proper ownership for all application files
 RUN addgroup -g 1000 -S romm && adduser -u 1000 -D -S -G romm romm && \
-    mkdir /romm /redis-data && chown romm:romm /romm /redis-data && \
-    chmod -R a+w /etc/nginx/conf.d
+    mkdir /romm /redis-data && \
+    chown -R romm:romm /romm /redis-data /backend && \
+    chown romm:romm /usr/bin/RAHasher && \
+    chown -R romm:romm ${WEBSERVER_FOLDER} && \
+    chown -R romm:romm /etc/gunicorn && \
+    chmod -R a+w /etc/nginx/conf.d && \
+    chmod +x /docker-entrypoint.sh /init
+
+# Switch to non-root user
+USER romm
 
 
 FROM scratch AS slim-image
